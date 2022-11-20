@@ -1,2 +1,0 @@
-# gdw-workshops
-GDW
