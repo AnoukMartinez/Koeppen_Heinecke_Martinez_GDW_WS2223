@@ -68,13 +68,14 @@ app.put('/events/:eventId/vote/:songId', (req, res) => {
     const eventId = req.params.eventId;
     const songId = req.params.songId;
     if(eventId < 0 || events.length <= eventId) {
-        res.status(404).send("Event Does Not Exist... LOL!");
+        res.status(404).send("Event Does Not Exist...");
     } else if(songId < 0 || events[eventId].voting.length <= songId) {
-        res.status(404).send("Song Does Not Exist... LMAO!");
+        res.status(404).send("Song Does Not Exist...");
     } else if(events[eventId].isActive == false){
-        res.status(403).send("Event Is Not Active Anymore... GO HOME!")
+        res.status(403).send("Event Is Not Active Anymore...")
     } else {
         events[eventId].voting[songId].popularity++;
+        events[eventId].voting = events[eventId].voting.sort(({popularity : a}, {popularity : b}) => b - a);
         res.send(`Successfully voted for ${events[eventId].voting[songId].name}
                   by ${events[eventId].voting[songId].artist}!`);
     }
@@ -83,7 +84,7 @@ app.put('/events/:eventId/vote/:songId', (req, res) => {
 app.post('/events/:eventId/add/:artist/:title', (req, res) => {
     let eventId = req.params.eventId;
     if(eventId < 0 || events.length <= eventId) {
-        res.status(404).send("Event Does Not Exist... LOL!");
+        res.status(404).send("Event Does Not Exist...");
     }
     let artist = req.params.artist;
     let title = req.params.title;
@@ -93,7 +94,7 @@ app.post('/events/:eventId/add/:artist/:title', (req, res) => {
 })
 
 app.listen(3000, () => {
-    // initTest();
+    initTest();
     console.log('Schau mal auf localhost:3000/')
 }); 
 
