@@ -104,7 +104,7 @@ app.post('/songs', (req, res) => {
 });
 
 // DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventId, songId)
-app.put('/delete/songs', (req, res) => {
+app.put('/events/songs', (req, res) => {
     let eventId = req.body.eventId;
     let songId = req.body.songId;
 
@@ -125,7 +125,7 @@ app.put('/delete/songs', (req, res) => {
 });
 
 // CHANGES EVENT TO INACTIVE (body requires: username, password, eventId)
-app.put('/edit', (req, res) => {
+app.put('/events', (req, res) => {
     let eventId = req.body.eventId;
     if(authorizer(req.body.username, req.body.password)){
         if(eventId > events.length){
