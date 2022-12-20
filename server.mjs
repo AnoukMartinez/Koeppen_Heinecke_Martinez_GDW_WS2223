@@ -31,17 +31,16 @@ var token = "";
 var timeStamp = 0; 
 var LIMIT = 10;
 
-app.get('/', (req, res) => {
-    
-})
+app.use(express.json());
 
-app.post('/create/:name', (req, res) => {
-    const partyName = req.params.name
-    let newParty = new Party(partyName);
+// MAKE NEW EVENT (body requires: name)
+app.post('/events', (req, res) => {
+    let newParty = new Party(req.body.name);
     events.push(newParty);
     res.status(201).send("OK");
 })
 
+// DISPLAY ALL EVENTS
 app.get('/events', (req, res) => {
     let allEventNames = [];
     events.forEach(a => allEventNames.push({name: a.name, isActive: a.isActive}))
@@ -49,24 +48,28 @@ app.get('/events', (req, res) => {
     res.status(200);
 })
 
+// DISPLAY EVENT INFO
 app.get('/events/:eventId', (req, res) => {
     const eventId = req.params.eventId;
     if(eventId < 0 || events.length <= eventId){
-        res.status(404).send("Event Does Not Exist... LOL!");
+        res.status(404).send("Event Does Not Exist...");
     } else {
         res.send(events[eventId]);
     }
 })
 
-app.get('/search/:name', async (req, res) => {
+// SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
+app.get('/songs/:name', async (req, res) => {
     const track = req.params.name
-    const test = await searchTrack(track);
-    res.json(test);
+    const result = await searchTrack(track);
+    res.json(result);
 })
 
-app.put('/events/:eventId/vote/:songId', (req, res) => {
-    const eventId = req.params.eventId;
-    const songId = req.params.songId;
+// VOTE FOR EXISTING SONG (body requires: eventId (starts from 0), songId (starts from 0))
+app.put('/songs', (req, res) => {
+    const eventId = req.body.eventId;
+    const songId = req.body.songId;
+
     if(eventId < 0 || events.length <= eventId) {
         res.status(404).send("Event Does Not Exist...");
     } else if(songId < 0 || events[eventId].voting.length <= songId) {
@@ -81,27 +84,29 @@ app.put('/events/:eventId/vote/:songId', (req, res) => {
     }
 })
 
-app.post('/events/:eventId/add/:artist/:title', (req, res) => {
-    let eventId = req.params.eventId;
+// ADD NEW SONG (body requries: eventId, artist, title)
+app.post('/songs', (req, res) => {
+    let eventId = req.body.eventId;
     if(eventId < 0 || events.length <= eventId) {
         res.status(404).send("Event Does Not Exist...");
     }
-    let artist = req.params.artist;
-    let title = req.params.title;
+    let artist = req.body.artist;
+    let title = req.body.title;
     let newSong = new Song(artist, title, 1);
     events[eventId].voting.push(newSong);
     res.status(201).send(`Successfully added ${title} by ${artist}!`)
 })
 
+// SERVER
 app.listen(3000, () => {
-    initTest();
+    // initTest();
     console.log('Schau mal auf localhost:3000/')
 }); 
 
 function initTest(){
     let newSong = new Song("Testinggg", "123Testtt", 3);
-    let newSong2 =  new Song("Hahehu", "Hohoho", 7);
-    let newEvent = new Party("Very Cool Party");
+    let newSong2 =  new Song("hi from inittest2", "uwabowagawabow", 7);
+    let newEvent = new Party("Very Cool Party for Testers");
     newEvent.voting.push(newSong);
     newEvent.voting.push(newSong2);
     events.push(newEvent);
