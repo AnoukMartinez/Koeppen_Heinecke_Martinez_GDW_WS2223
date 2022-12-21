@@ -7,11 +7,11 @@ globalThis.fetch = fetch;
 const app = express();
 
 class Song {
-    constructor(artist, name, popularity, spotify_id){
+    constructor(artist, title, popularity, spotify_id){
         this.artist = artist,
-        this.name = name,
+        this.title = title,
         this.popularity = popularity
-        // this.spotify_id = spotify_id
+        this.spotify_id = spotify_id
     }
 };
 
@@ -108,8 +108,8 @@ app.get('/events/:eventId', (req, res) => {
 });
 
 // SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
-app.get('/songs/:name', async (req, res) => {
-    const track = req.params.name;
+app.get('/songs/:title', async (req, res) => {
+    const track = req.params.title;
     const result = await searchTrack(track);
     res.json(result);
 });
@@ -130,15 +130,14 @@ app.put('/songs', (req, res) => {
         } else {
             events[eventId].voting[songId].popularity++;
             events[eventId].voting = events[eventId].voting.sort(({popularity : a}, {popularity : b}) => b - a);
-            res.status(201).res.send(`Successfully voted for ${events[eventId].voting[songId].name}
-                    by ${events[eventId].voting[songId].artist}!`);
+            res.status(201).send(`Successfully voted for ${events[eventId].voting[songId].title} by ${events[eventId].voting[songId].artist}!`);
         };
     } else {
         res.status(405).send("Your credentials don't match those of an existing user.")
     }
 });
 
-// ADD NEW SONG (body requries: username, password, eventId, artist, title)
+// ADD NEW SONG (body requries: username, password, eventId, artist, title, spotify_id)
 app.post('/songs', (req, res) => {
     let auth = authorizer(req.body.username, req.body.password);
 
@@ -149,9 +148,17 @@ app.post('/songs', (req, res) => {
         };
         let artist = req.body.artist;
         let title = req.body.title;
-        let newSong = new Song(artist, title, 1);
-        events[eventId].voting.push(newSong);
-        res.status(201).send(`Successfully added ${title} by ${artist}!`);
+        let spotify_id = req.body.spotify_id;
+        let newSong = new Song(artist, title, 1, spotify_id);
+
+        const exists = events[eventId].voting.findIndex(song => song.spotify_id == newSong.spotify_id);
+        if(exists != -1){
+            events[eventId].voting[exists].popularity++;
+            res.status(200).send("This song already exists in the voting. We incremented the popularity for you!")
+        } else {
+            events[eventId].voting.push(newSong);
+            res.status(201).send(`Successfully added ${title} by ${artist}!`);
+        }
     } else {
         res.status(405).send("Your credentials don't match those of an existing account.")
     }
@@ -168,11 +175,11 @@ app.put('/events/songs', (req, res) => {
             res.status(404).send("This song or event does not exist.");
         } else {
             let newSong = new Song(events[eventId].voting[songId].artist, 
-                                    events[eventId].voting[songId].name,
+                                    events[eventId].voting[songId].title,
                                     events[eventId].voting[songId].popularity)
             events[eventId].voting.splice(songId, 1);
             events[eventId].tracklist.push(newSong);
-            res.status(200).send(`Successfully deleted ${newSong.name} by ${newSong.artist}!`)
+            res.status(200).send(`Successfully deleted ${newSong.title} by ${newSong.artist}!`)
         }
     } else if(auth == "user") {
         res.status(405).send("You don't seem to be authorized for this action.");
@@ -255,7 +262,7 @@ async function searchTrack(track){
             .then(json => {
                 let allResults = [];
                 for(let i = 0; i < LIMIT; i++){
-                    allResults.push(new Song(json.tracks.items[i].artists[0].name, json.tracks.items[i].name, 1))
+                    allResults.push(new Song(json.tracks.items[i].artists[0].name, json.tracks.items[i].name, 1, json.tracks.items[i].id))
                 };
                 resolve(allResults);
     })
