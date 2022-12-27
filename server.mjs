@@ -6,12 +6,22 @@ globalThis.fetch = fetch;
 
 const app = express();
 
-class Song {
-    constructor(artist, title, popularity, spotify_id){
+class DisplaySong {
+    constructor(artist, title, song_id){
         this.artist = artist,
         this.title = title,
-        this.popularity = popularity
-        this.spotify_id = spotify_id
+        this.song_id = song_id
+    }
+}
+
+class Song {
+    constructor(artist, title, popularity, song_id, artist_id, genre){
+        this.artist = artist,
+        this.title = title,
+        this.popularity = popularity,
+        this.song_id = song_id,
+        this.artist_id = artist_id,
+        this.genre = genre
     }
 };
 
@@ -45,7 +55,7 @@ let events = [];
 
 var token = ""; 
 var timeStamp = 0; 
-var LIMIT = 10;
+var LIMIT = 1;
 
 let admins = [];
 let users = [];
@@ -98,12 +108,12 @@ app.get('/events', (req, res) => {
 });
 
 // DISPLAY EVENT INFO
-app.get('/events/:eventId', (req, res) => {
-    const eventId = req.params.eventId;
-    if(eventId < 0 || events.length <= eventId){
+app.get('/events/:eventIndex', (req, res) => {
+    const eventIndex = req.params.eventIndex;
+    if(eventIndex < 0 || events.length <= eventIndex){
         res.status(404).send("Event Does Not Exist...");
     } else {
-        res.send(events[eventId]);
+        res.send(events[eventIndex]);
     };
 });
 
@@ -114,71 +124,68 @@ app.get('/songs/:title', async (req, res) => {
     res.json(result);
 });
 
-// VOTE FOR EXISTING SONG (body requires: eventId (starts from 0), songId (starts from 0), username, password)
+// VOTE FOR EXISTING SONG (body requires: eventIndex (starts from 0), songIndex (starts from 0), username, password)
 app.put('/songs', (req, res) => {
-    const eventId = req.body.eventId;
-    const songId = req.body.songId;
+    const eventIndex = req.body.eventIndex;
+    const songIndex = req.body.songIndex;
     let auth = authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
-        if(eventId < 0 || events.length <= eventId) {
+        if(eventIndex < 0 || events.length <= eventIndex) {
         res.status(404).send("Event Does Not Exist...");
-        } else if(songId < 0 || events[eventId].voting.length <= songId) {
+        } else if(songIndex < 0 || events[eventIndex].voting.length <= songIndex) {
             res.status(404).send("Song Does Not Exist...");
-        } else if(events[eventId].isActive == false){
+        } else if(events[eventIndex].isActive == false){
             res.status(403).send("Event Is Not Active Anymore...")
         } else {
-            events[eventId].voting[songId].popularity++;
-            events[eventId].voting = events[eventId].voting.sort(({popularity : a}, {popularity : b}) => b - a);
-            res.status(201).send(`Successfully voted for ${events[eventId].voting[songId].title} by ${events[eventId].voting[songId].artist}!`);
+            events[eventIndex].voting[songIndex].popularity++;
+            events[eventIndex].voting = events[eventIndex].voting.sort(({popularity : a}, {popularity : b}) => b - a);
+            res.status(201).send(`Successfully voted for ${events[eventIndex].voting[songIndex].title} by ${events[eventIndex].voting[songIndex].artist}!`);
         };
     } else {
         res.status(405).send("Your credentials don't match those of an existing user.")
     }
 });
 
-// ADD NEW SONG (body requries: username, password, eventId, artist, title, spotify_id)
-app.post('/songs', (req, res) => {
+// ADD NEW SONG (body requries: username, password, eventIndex, artist, title, song_id)
+app.post('/songs', async (req, res) => {
     let auth = authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
-        let eventId = req.body.eventId;
-        if(eventId < 0 || events.length <= eventId) {
+        let eventIndex = req.body.eventIndex;
+        if(eventIndex < 0 || events.length <= eventIndex) {
             res.status(404).send("Event Does Not Exist...");
         };
-        let artist = req.body.artist;
-        let title = req.body.title;
-        let spotify_id = req.body.spotify_id;
-        let newSong = new Song(artist, title, 1, spotify_id);
+        let song_id = req.body.song_id;
+        let newSong = await getSongDetail(song_id);
 
-        const exists = events[eventId].voting.findIndex(song => song.spotify_id == newSong.spotify_id);
+        const exists = events[eventIndex].voting.findIndex(song => song.song_id == newSong.song_id);
         if(exists != -1){
-            events[eventId].voting[exists].popularity++;
+            events[eventIndex].voting[exists].popularity++;
             res.status(200).send("This song already exists in the voting. We incremented the popularity for you!")
         } else {
-            events[eventId].voting.push(newSong);
-            res.status(201).send(`Successfully added ${title} by ${artist}!`);
+            events[eventIndex].voting.push(newSong);
+            res.status(201).send(`Successfully added ${newSong.title} by ${newSong.artist}!`);
         }
     } else {
         res.status(405).send("Your credentials don't match those of an existing account.")
     }
 });
 
-// DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventId, songId)
+// DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventIndex, songIndex)
 app.put('/events/songs', (req, res) => {
-    let eventId = req.body.eventId;
-    let songId = req.body.songId;
+    let eventIndex = req.body.eventIndex;
+    let songIndex = req.body.songIndex;
     let auth = authorizer(req.body.username, req.body.password)
 
     if(auth == "admin"){
-        if(songId > events[eventId].voting.length){
+        if(songIndex > events[eventIndex].voting.length){
             res.status(404).send("This song or event does not exist.");
         } else {
-            let newSong = new Song(events[eventId].voting[songId].artist, 
-                                    events[eventId].voting[songId].title,
-                                    events[eventId].voting[songId].popularity)
-            events[eventId].voting.splice(songId, 1);
-            events[eventId].tracklist.push(newSong);
+            let newSong = events[eventIndex].voting[songIndex]
+            events[eventIndex].tracklist.push(newSong);
+            events[eventIndex].voting.splice(songIndex, 1);
+            
             res.status(200).send(`Successfully deleted ${newSong.title} by ${newSong.artist}!`)
         }
     } else if(auth == "user") {
@@ -188,15 +195,16 @@ app.put('/events/songs', (req, res) => {
     }
 });
 
-// CHANGES EVENT TO INACTIVE (body requires: username, password, eventId)
+// CHANGES EVENT TO INACTIVE (body requires: username, password, eventIndex)
 app.put('/events', (req, res) => {
-    let eventId = req.body.eventId;
+    let eventIndex = req.body.eventIndex;
     let auth = authorizer(req.body.username, req.body.password)
     if(auth == "admin"){
-        if(eventId > events.length){
+        if(eventIndex > events.length){
             res.status(404).send("This event does not exist.");
         } else {
-            events[eventId].isActive = false;
+            events[eventIndex].isActive = false;
+            res.status(201).send("Event has been successfully set to inactive.")
         }
     } else if(auth == "user") {
         res.status(405).send("You don't seem to be authorized for this action.");
@@ -260,14 +268,73 @@ async function searchTrack(track){
             })
             .then(response => response.json())
             .then(json => {
+                
                 let allResults = [];
                 for(let i = 0; i < LIMIT; i++){
-                    allResults.push(new Song(json.tracks.items[i].artists[0].name, json.tracks.items[i].name, 1, json.tracks.items[i].id))
+                    // console.log(json.tracks.items[i]);
+                    allResults.push(new DisplaySong(json.tracks.items[i].artists[0].name, 
+                                                    json.tracks.items[i].name, 
+                                                    json.tracks.items[i].id))
                 };
-                resolve(allResults);
+            resolve(allResults);
     })
 });
 };
+
+async function getTrackDetail(song_id){
+    var token = await getToken();
+    return new Promise(function(resolve, reject) {
+        fetch(('https://api.spotify.com/v1/tracks/' + song_id), {
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
+            }
+        }).then(response => response.json())
+        .then(json => {
+            let artist = json.artists[0].name;
+            let title = json.name;
+            let popularity = 1;
+            let song_id = json.id;
+            let artist_id = json.artists[0].id;
+            let newSong = new Song(artist, title, popularity, song_id, artist_id);
+            resolve(newSong);
+        })
+    })
+}
+
+async function getSongDetail(song_id){
+    let newSong = await getTrackDetail(song_id);
+    let genre = await getArtistGenre(newSong.artist_id);
+    let finalSong = new Song(newSong.artist, newSong.title, newSong.popularity, newSong.song_id,
+                                newSong.artist_id, genre);
+    return finalSong;
+}
+
+async function getArtistGenre(artist_id){
+    var token = await getToken();
+    return new Promise(function(resolve, reject) {
+        fetch(('https://api.spotify.com/v1/artists/' + artist_id), {
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
+            }
+        }).then(response => response.json())
+        .then(json => {
+            let genres = [];
+            for(let i = 0; i < json.genres.length; i++){
+                genres.push(json.genres[i]);
+            }
+            resolve(genres);        
+        }) 
+    })
+}
+
+// let songDetailTest = await getSongDetail('0zv1grI5zKy2dxSu93unXc');
+// console.log(songDetailTest);
 
 function authorizer(username, password){
     const contains = (element) => (element.username == username) && (element.password == password);
