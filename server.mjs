@@ -111,10 +111,9 @@ app.get('/events', (req, res) => {
 app.get('/events/:eventIndex', (req, res) => {
     const eventIndex = req.params.eventIndex;
     if(eventIndex < 0 || events.length <= eventIndex){
-        res.status(404).send("Event Does Not Exist...");
-    } else {
-        res.send(events[eventIndex]);
-    };
+        return res.status(404).send("Event Does Not Exist...");
+    } 
+    res.send(events[eventIndex]);
 });
 
 // SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
@@ -125,37 +124,39 @@ app.get('/songs/:title', async (req, res) => {
 });
 
 // VOTE FOR EXISTING SONG (body requires: eventIndex (starts from 0), songIndex (starts from 0), username, password)
-app.put('/songs', (req, res) => {
+app.put('/events/songs/vote', (req, res) => {
     const eventIndex = req.body.eventIndex;
     const songIndex = req.body.songIndex;
     let auth = authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
         if(eventIndex < 0 || events.length <= eventIndex) {
-        res.status(404).send("Event Does Not Exist...");
-        } else if(songIndex < 0 || events[eventIndex].voting.length <= songIndex) {
-            res.status(404).send("Song Does Not Exist...");
-        } else if(events[eventIndex].isActive == false){
-            res.status(403).send("Event Is Not Active Anymore...")
-        } else {
-            events[eventIndex].voting[songIndex].popularity++;
-            events[eventIndex].voting = events[eventIndex].voting.sort(({popularity : a}, {popularity : b}) => b - a);
-            res.status(201).send(`Successfully voted for ${events[eventIndex].voting[songIndex].title} by ${events[eventIndex].voting[songIndex].artist}!`);
-        };
+            return res.status(404).send("Event Does Not Exist...");
+        } 
+        if(songIndex < 0 || events[eventIndex].voting.length <= songIndex) {
+            return res.status(404).send("Song Does Not Exist...");
+        } 
+        if(events[eventIndex].isActive == false){
+            return res.status(403).send("Event Is Not Active Anymore...")
+        } 
+        events[eventIndex].voting[songIndex].popularity++;
+        events[eventIndex].voting = events[eventIndex].voting.sort(({popularity : a}, {popularity : b}) => b - a);
+        res.status(201).send(`Successfully voted for ${events[eventIndex].voting[songIndex].title} by ${events[eventIndex].voting[songIndex].artist}!`);
     } else {
         res.status(405).send("Your credentials don't match those of an existing user.")
     }
 });
 
 // ADD NEW SONG (body requries: username, password, eventIndex, artist, title, song_id)
-app.post('/songs', async (req, res) => {
+app.post('/events/songs', async (req, res) => {
     let auth = authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
         let eventIndex = req.body.eventIndex;
         if(eventIndex < 0 || events.length <= eventIndex) {
-            res.status(404).send("Event Does Not Exist...");
-        };
+            return res.status(404).send("Event Does Not Exist...");
+        }
+        
         let song_id = req.body.song_id;
         let newSong = await getSongDetail(song_id);
 
@@ -179,15 +180,19 @@ app.put('/events/songs', (req, res) => {
     let auth = authorizer(req.body.username, req.body.password)
 
     if(auth == "admin"){
-        if(songIndex > events[eventIndex].voting.length){
-            res.status(404).send("This song or event does not exist.");
-        } else {
-            let newSong = events[eventIndex].voting[songIndex]
-            events[eventIndex].tracklist.push(newSong);
-            events[eventIndex].voting.splice(songIndex, 1);
-            
-            res.status(200).send(`Successfully deleted ${newSong.title} by ${newSong.artist}!`)
+        if(eventIndex >= events.length || eventIndex < 0){
+            return res.status(404).send("This event does not exist.");
+        } 
+        if(songIndex >= events[eventIndex].voting.length || songIndex < 0){
+            return res.status(404).send("This song does not exist.");
         }
+
+        let newSong = events[eventIndex].voting[songIndex]
+        events[eventIndex].tracklist.push(newSong);
+        events[eventIndex].voting.splice(songIndex, 1);
+        
+        res.status(200).send(`Successfully deleted ${newSong.title} by ${newSong.artist}!`)
+        
     } else if(auth == "user") {
         res.status(405).send("You don't seem to be authorized for this action.");
     } else {
@@ -201,11 +206,12 @@ app.put('/events', (req, res) => {
     let auth = authorizer(req.body.username, req.body.password)
     if(auth == "admin"){
         if(eventIndex > events.length){
-            res.status(404).send("This event does not exist.");
-        } else {
-            events[eventIndex].isActive = false;
-            res.status(201).send("Event has been successfully set to inactive.")
-        }
+            return res.status(404).send("This event does not exist.");
+        } 
+
+        events[eventIndex].isActive = false;
+        res.status(201).send("Event has been successfully set to inactive.")
+    
     } else if(auth == "user") {
         res.status(405).send("You don't seem to be authorized for this action.");
     } else {
