@@ -55,7 +55,7 @@ let events = [];
 
 var token = ""; 
 var timeStamp = 0; 
-var LIMIT = 1;
+var LIMIT = 10;
 
 let admins = [];
 let users = [];
@@ -219,6 +219,19 @@ app.put('/events', (req, res) => {
     }
 });
 
+app.get('/events/songs/recommendations/:eventIndex', async (req, res) => {
+    let eventIndex = req.params.eventIndex;
+    if(eventIndex > events.length || eventIndex < 0){
+        return res.status(404).send("This event does not exist.")
+    }
+    if(events[eventIndex].voting.length == 0){
+        return res.status(404).send("There are no entries yet to base recommendations on.")
+    }
+
+    const result = await getRecommendations(eventIndex);
+    res.json(result);
+})
+
 // SERVER
 app.listen(3000, () => {
     console.log('Schau mal auf localhost:3000/');
@@ -336,6 +349,48 @@ async function getArtistGenre(artist_id){
             }
             resolve(genres);        
         }) 
+    })
+}
+
+// events/songs/recommendations
+
+async function getRecommendations(eventIndex){
+    var token = await getToken();
+
+    let seed_artists = [];
+    let seed_genres = [];
+    let seed_tracks = [];
+
+    for(let i=0;i < events[eventIndex].voting.length && i < 5;i++){
+        seed_artists.push(events[eventIndex].voting[i].artist_id);
+        seed_genres.push(events[eventIndex].voting[i].genre[0]);
+        seed_tracks.push(events[eventIndex].voting[i].song_id);
+    }
+
+    seed_artists = seed_artists.join(",");
+    seed_genres = seed_genres.join(",");
+    seed_tracks = seed_tracks.join(",");    
+
+    return new Promise(function(resolve, reject) {
+        fetch(('https://api.spotify.com/v1/recommendations?seed_artists=' + seed_artists + '&seed_genres=' + seed_genres + '&seed_tracks=' + seed_tracks + '&limit=' + LIMIT), {
+            method: "GET",
+            headers: {
+                "Authorization" : "Bearer " + token,
+                "Content-Type" : "application/json"
+            }
+        }).then(response => response.json())
+        .then(json => {
+            let allRecommendations = [];
+
+            for(let i = 0; i < LIMIT; i++){
+                if(json.tracks[i] == undefined){
+                    break;
+                }
+                var recSong = new DisplaySong(json.tracks[i].artists[0].name, json.tracks[0].name, json.tracks[0].id);
+                allRecommendations.push(recSong)
+            }
+            resolve(allRecommendations);
+        })
     })
 }
 
