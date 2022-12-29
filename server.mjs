@@ -361,15 +361,15 @@ async function getRecommendations(eventIndex){
     let seed_genres = [];
     let seed_tracks = [];
 
-    for(let i=0;i < events[eventIndex].voting.length && i < 5;i++){
-        seed_artists.push(events[eventIndex].voting[i].artist_id);
+    // 5 Seeds Total (Interchangeable)
+    for(let i=0;i < events[eventIndex].voting.length && i < 2;i++){
         seed_genres.push(events[eventIndex].voting[i].genre[0]);
-        seed_tracks.push(events[eventIndex].voting[i].song_id);
+        seed_artists.push(events[eventIndex].voting[i].artist_id);
     }
 
+    seed_tracks.push(events[eventIndex].voting[0].song_id);
     seed_artists = seed_artists.join(",");
-    seed_genres = seed_genres.join(",");
-    seed_tracks = seed_tracks.join(",");    
+    seed_genres = seed_genres.join(",");   
 
     return new Promise(function(resolve, reject) {
         fetch(('https://api.spotify.com/v1/recommendations?seed_artists=' + seed_artists + '&seed_genres=' + seed_genres + '&seed_tracks=' + seed_tracks + '&limit=' + LIMIT), {
@@ -383,10 +383,10 @@ async function getRecommendations(eventIndex){
             let allRecommendations = [];
 
             for(let i = 0; i < LIMIT; i++){
-                if(json.tracks[i] == undefined){
+                /* if(json.tracks[i] == undefined){
                     break;
-                }
-                var recSong = new DisplaySong(json.tracks[i].artists[0].name, json.tracks[0].name, json.tracks[0].id);
+                } */
+                let recSong = new DisplaySong(json.tracks[i].artists[0].name, json.tracks[i].name, json.tracks[i].id);
                 allRecommendations.push(recSong)
             }
             resolve(allRecommendations);
