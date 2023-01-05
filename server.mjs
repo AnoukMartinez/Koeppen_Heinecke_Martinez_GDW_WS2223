@@ -2,9 +2,17 @@ import express from 'express';
 import fetch from 'node-fetch';
 import { client_id } from './secrets.mjs';
 import { client_secret } from './secrets.mjs';
+import { createClient } from 'redis';
 globalThis.fetch = fetch;
 
+const client = createClient({
+    url: process.env.redis_url
+});
+client.on('error', (err) => console.log('Redis Client Error', err));
+await client.connect();
+
 const app = express();
+app.use(express.json());
 
 class DisplaySong {
     constructor(artist, title, song_id){
@@ -25,63 +33,73 @@ class Song {
     }
 };
 
-class Party {
-    constructor(name, voting, tracklist, dateOfCreation, isActive){
-        this.name = name;
-        this.voting = [];
-        this.tracklist = [];
-        this.dateOfCreation = Date.now();
-        this.isActive = true;
+class DisplayEventSong {
+    constructor(index, artist, title, popularity, genre){
+        this.index = index,
+        this.artist = artist,
+        this.title = title,
+        this.popularity = popularity,
+        this.genre = genre
     }
 }
 
-class Admin {
-    constructor(admin, username, password){
-        this.type = "admin",
-        this.username = username,
-        this.password = password
+class DisplayParty {
+    constructor(name, dateOfCreation, isActive){
+        this.name = name;
+        this.dateOfCreation = dateOfCreation;
+        this.isActive = isActive;
+    }
+}
+
+class Party {
+    constructor(name, voting, tracklist, dateOfCreation, isActive){
+        this.name = name;
+        this.voting = voting;
+        this.tracklist = tracklist;
+        this.dateOfCreation = dateOfCreation;
+        this.isActive = isActive;
     }
 }
 
 class User {
-    constructor(admin, username, password){
-        this.type = "user",
+    constructor(type, username, password){
+        this.type = type,
         this.username = username,
         this.password = password
     }
 }
-
-let events = [];
 
 var token = ""; 
 var timeStamp = 0; 
 var LIMIT = 10;
 
-let admins = [];
-let users = [];
-
-app.use(express.json());
-
 // CREATES NEW USER OR ADMIN (body requires: type, username, password)
-app.post('/users', (req, res) => {
+app.post('/users', async(req, res) => {
     if(req.body.type == "admin"){
         let newAdmin = new Admin(req.body.admin, req.body.username, req.body.password);
-        admins.push(newAdmin);
+        await client.json.set('admins', '.' + newAdmin.username, {"password":newAdmin.password});
         res.status(201).send("New Admin has been created!");
     } else {
         let newUser = new User(req.body.admin, req.body.username, req.body.password);
-        users.push(newUser);
+        await client.json.set('users', '.' + newUser.username, {"password":newUser.password});
+        // send error if redis fails
         res.status(201).send("New User has been created!")
     }
 })
 
 // VIEWS ALL EXISTING USERS (body requires: username, password)
-app.get('/users', (req, res) => {
-    if(authorizer(req.body.username, req.body.password) == "admin"){
-        let allProfiles = [];
-        users.forEach(a => allProfiles.push({type: a.type, username: a.username, password: a.password}));
-        admins.forEach(a => allProfiles.push({type: a.type, username: a.username, password: a.password}));
-        res.json(allProfiles);
+app.get('/users', async (req, res) => {
+    if(await authorizer(req.body.username, req.body.password) == "admin"){
+        let admins = await client.json.get('admins');
+        let users = await client.json.get('users');
+        let allUsers = []
+        for (const key in admins) {
+            allUsers.push(new User("admin", key, admins[key].password));
+        }
+        for (const key in users) {
+            allUsers.push(new User("user", key, users[key].password));
+        }
+        res.json(allUsers);
         res.status(200);
     } else {
         res.status(405).send("You don't seem to be authorized for this action.")
@@ -89,10 +107,11 @@ app.get('/users', (req, res) => {
 })
 
 // MAKE NEW EVENT (body requires: password, username, name)
-app.post('/events', (req, res) => {
-    if(authorizer(req.body.username, req.body.password) == "admin"){
-        let newParty = new Party(req.body.name);
-        events.push(newParty);
+app.post('/events', async (req, res) => {
+    const auth = await authorizer(req.body.username, req.body.password);
+    if(auth == "admin"){
+        let newParty = new Party(req.body.name, [], [], Date.now(), true);
+        await client.json.ARRAPPEND('events', '$', newParty);
         res.status(201).send("Event has been created!");
     } else {
         res.status(405).send("You don't seem to be authorized for this action.");
@@ -100,20 +119,37 @@ app.post('/events', (req, res) => {
 });
 
 // DISPLAY ALL EVENTS
-app.get('/events', (req, res) => {
-    let allEventNames = [];
-    events.forEach(a => allEventNames.push({name: a.name, isActive: a.isActive}));
-    res.json(allEventNames);
+app.get('/events', async (req, res) => {
+    let events = await client.json.get('events');
+    let allEvents = []
+
+    events.forEach(function(item) {
+        allEvents.push(new DisplayParty(item.name, item.dateOfCreation, item.isActive));
+    })
+    
+    res.json(allEvents);
     res.status(200);
 });
 
 // DISPLAY EVENT INFO
-app.get('/events/:eventIndex', (req, res) => {
+app.get('/events/:eventIndex', async (req, res) => {
     const eventIndex = req.params.eventIndex;
-    if(eventIndex < 0 || events.length <= eventIndex){
+    // const event = await client.json.get('events', `$..[${eventIndex}]`);
+    try {
+        let event = await client.json.get('events', {path: [`.[${eventIndex}]`]});
+        let displayVoting = [];
+        let i = 0;
+        event.voting.forEach(function(element) {
+            displayVoting.push(new DisplayEventSong(i, element.artist, element.title, 
+                                                    element.popularity, element.genre));
+            i++;
+        })
+
+        event.voting = displayVoting.sort(({popularity : a}, {popularity : b}) => b - a);
+        return res.send(event)
+    } catch {
         return res.status(404).send("Event Does Not Exist...");
-    } 
-    res.send(events[eventIndex]);
+    }
 });
 
 // SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
@@ -124,48 +160,59 @@ app.get('/songs/:title', async (req, res) => {
 });
 
 // VOTE FOR EXISTING SONG (body requires: eventIndex (starts from 0), songIndex (starts from 0), username, password)
-app.put('/events/songs/vote', (req, res) => {
+app.put('/events/songs/vote', async (req, res) => {
     const eventIndex = req.body.eventIndex;
     const songIndex = req.body.songIndex;
-    let auth = authorizer(req.body.username, req.body.password);
+    let currEvent;
+    let auth = await authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
-        if(eventIndex < 0 || events.length <= eventIndex) {
+        try {
+            currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
+        } catch {
             return res.status(404).send("Event Does Not Exist...");
-        } 
-        if(songIndex < 0 || events[eventIndex].voting.length <= songIndex) {
+        }
+        
+        if(songIndex < 0 || currEvent.voting.length <= songIndex) {
             return res.status(404).send("Song Does Not Exist...");
         } 
-        if(events[eventIndex].isActive == false){
+        if(currEvent.isActive == false){
             return res.status(403).send("Event Is Not Active Anymore...")
-        } 
-        events[eventIndex].voting[songIndex].popularity++;
-        events[eventIndex].voting = events[eventIndex].voting.sort(({popularity : a}, {popularity : b}) => b - a);
-        res.status(201).send(`Successfully voted for ${events[eventIndex].voting[songIndex].title} by ${events[eventIndex].voting[songIndex].artist}!`);
+        }
+
+        await client.json.set('events', `$[${eventIndex}].voting[${songIndex}].popularity`, ++currEvent.voting[songIndex].popularity);
+        res.status(201).send(`Successfully voted for ${currEvent.voting[songIndex].title} by ${currEvent.voting[songIndex].artist}!`);
     } else {
         res.status(405).send("Your credentials don't match those of an existing user.")
     }
 });
 
-// ADD NEW SONG (body requries: username, password, eventIndex, artist, title, song_id)
+// ADD NEW SONG (body requries: username, password, eventIndex, song_id)
 app.post('/events/songs', async (req, res) => {
-    let auth = authorizer(req.body.username, req.body.password);
+    let auth = await authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
         let eventIndex = req.body.eventIndex;
-        if(eventIndex < 0 || events.length <= eventIndex) {
+        let currEvent;
+        try {
+            currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
+        } catch {
             return res.status(404).send("Event Does Not Exist...");
+        }
+
+        if(!currEvent.isActive){
+            return res.status(403).send("Event Is Not Active Anymore...");
         }
         
         let song_id = req.body.song_id;
         let newSong = await getSongDetail(song_id);
 
-        const exists = events[eventIndex].voting.findIndex(song => song.song_id == newSong.song_id);
+        const exists = currEvent.voting.findIndex(song => song.song_id == newSong.song_id);
         if(exists != -1){
-            events[eventIndex].voting[exists].popularity++;
+            await client.json.set('events', `$[${eventIndex}].voting[${exists}].popularity`, ++currEvent.voting[exists].popularity);
             res.status(200).send("This song already exists in the voting. We incremented the popularity for you!")
         } else {
-            events[eventIndex].voting.push(newSong);
+            await client.json.ARRAPPEND('events', `$[${eventIndex}].voting`, newSong);
             res.status(201).send(`Successfully added ${newSong.title} by ${newSong.artist}!`);
         }
     } else {
@@ -174,24 +221,28 @@ app.post('/events/songs', async (req, res) => {
 });
 
 // DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventIndex, songIndex)
-app.put('/events/songs', (req, res) => {
+app.put('/events/songs', async (req, res) => {
     let eventIndex = req.body.eventIndex;
     let songIndex = req.body.songIndex;
-    let auth = authorizer(req.body.username, req.body.password)
+    let auth = await authorizer(req.body.username, req.body.password)
+    let currEvent;
 
     if(auth == "admin"){
-        if(eventIndex >= events.length || eventIndex < 0){
+        try {
+            currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
+        } catch {
             return res.status(404).send("This event does not exist.");
-        } 
-        if(songIndex >= events[eventIndex].voting.length || songIndex < 0){
+        }
+
+        if(songIndex >= currEvent.voting.length || songIndex < 0){
             return res.status(404).send("This song does not exist.");
         }
 
-        let newSong = events[eventIndex].voting[songIndex]
-        events[eventIndex].tracklist.push(newSong);
-        events[eventIndex].voting.splice(songIndex, 1);
+        let newSong = currEvent.voting[songIndex];
+        await client.json.ARRAPPEND('events', `$[${eventIndex}].tracklist`, newSong);
+        await client.json.ARRPOP('events', `$[${eventIndex}].voting`, songIndex);
         
-        res.status(200).send(`Successfully deleted ${newSong.title} by ${newSong.artist}!`)
+        res.status(201).send(`Successfully deleted ${newSong.title} by ${newSong.artist}!`)
         
     } else if(auth == "user") {
         res.status(405).send("You don't seem to be authorized for this action.");
@@ -201,34 +252,37 @@ app.put('/events/songs', (req, res) => {
 });
 
 // CHANGES EVENT TO INACTIVE (body requires: username, password, eventIndex)
-app.put('/events', (req, res) => {
+app.put('/events', async (req, res) => {
     let eventIndex = req.body.eventIndex;
-    let auth = authorizer(req.body.username, req.body.password)
+    let auth = await authorizer(req.body.username, req.body.password)
     if(auth == "admin"){
-        if(eventIndex > events.length){
+        try {
+            await client.json.set('events', `$[${eventIndex}].isActive`, false)
+            return res.status(201).send("Event has been successfully set to inactive.")
+        } catch {
             return res.status(404).send("This event does not exist.");
-        } 
-
-        events[eventIndex].isActive = false;
-        res.status(201).send("Event has been successfully set to inactive.")
-    
-    } else if(auth == "user") {
-        res.status(405).send("You don't seem to be authorized for this action.");
-    } else {
-        res.status(405).send("Your credentials don't match those of an existing user.")
-    }
+        }
+    } 
+    if(auth == "user") {
+        return res.status(405).send("You don't seem to be authorized for this action.");
+    } 
+    return res.status(405).send("Your credentials don't match those of an existing user.")
 });
 
+// GETS RECOMMENDATIONS
 app.get('/events/songs/recommendations/:eventIndex', async (req, res) => {
     let eventIndex = req.params.eventIndex;
-    if(eventIndex > events.length || eventIndex < 0){
-        return res.status(404).send("This event does not exist.")
+    let currEvent;
+    try {
+        currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
+    } catch {
+        return res.status(404).send("This event does not exist.");
     }
-    if(events[eventIndex].voting.length == 0){
+    if(currEvent.voting.length == 0){
         return res.status(404).send("There are no entries yet to base recommendations on.")
     }
 
-    const result = await getRecommendations(eventIndex);
+    const result = await getRecommendations(currEvent.voting);
     res.json(result);
 })
 
@@ -354,7 +408,7 @@ async function getArtistGenre(artist_id){
 
 // events/songs/recommendations
 
-async function getRecommendations(eventIndex){
+async function getRecommendations(voting){
     var token = await getToken();
 
     let seed_artists = [];
@@ -362,12 +416,12 @@ async function getRecommendations(eventIndex){
     let seed_tracks = [];
 
     // 5 Seeds Total (Interchangeable)
-    for(let i=0;i < events[eventIndex].voting.length && i < 2;i++){
-        seed_genres.push(events[eventIndex].voting[i].genre[0]);
-        seed_artists.push(events[eventIndex].voting[i].artist_id);
+    for(let i=0;i < voting.length && i < 2;i++){
+        seed_genres.push(voting[i].genre[0]);
+        seed_artists.push(voting[i].artist_id);
     }
 
-    seed_tracks.push(events[eventIndex].voting[0].song_id);
+    seed_tracks.push(voting[0].song_id);
     seed_artists = seed_artists.join(",");
     seed_genres = seed_genres.join(",");   
 
@@ -397,11 +451,15 @@ async function getRecommendations(eventIndex){
 // let songDetailTest = await getSongDetail('0zv1grI5zKy2dxSu93unXc');
 // console.log(songDetailTest);
 
-function authorizer(username, password){
-    const contains = (element) => (element.username == username) && (element.password == password);
-    if(admins.some(contains)){
+async function authorizer(username, password){
+    let adminsDB = await client.json.get('admins', {path: `$.${username}`});
+    if(adminsDB.length != 0 && adminsDB[0].password == password){
         return "admin";
-    } else if(users.some(contains)){
+    }
+
+    let usersDB = await client.json.get('users', {path: `$.${username}`});
+    if(usersDB.length != 0 && usersDB[0].password == password){
         return "user";
-    } else return "none"
+    } 
+    return "none"
 }
