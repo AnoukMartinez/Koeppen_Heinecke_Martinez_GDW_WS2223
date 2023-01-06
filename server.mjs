@@ -70,8 +70,7 @@ class User {
 }
 
 var token = ""; 
-var timeStamp = 0; 
-var LIMIT = 10;
+var timeStamp = 0;
 
 // CREATES NEW USER OR ADMIN (body requires: type, username, password)
 app.post('/users', async(req, res) => {
@@ -82,7 +81,6 @@ app.post('/users', async(req, res) => {
     } else {
         let newUser = new User(req.body.admin, req.body.username, req.body.password);
         await client.json.set('users', '.' + newUser.username, {"password":newUser.password});
-        // send error if redis fails
         res.status(201).send("New User has been created!")
     }
 })
@@ -153,16 +151,18 @@ app.get('/events/:eventIndex', async (req, res) => {
 });
 
 // SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
-app.get('/songs/:title', async (req, res) => {
+app.get('/songs/title=:title&type=:type&limit=:limit', async (req, res) => {
     const track = req.params.title;
-    const result = await searchTrack(track);
+    const type = req.params.type;
+    const limit = req.params.limit;
+    const result = await searchTrack(track, type, limit);
     res.json(result);
 });
 
 // VOTE FOR EXISTING SONG (body requires: eventIndex (starts from 0), songIndex (starts from 0), username, password)
-app.put('/events/songs/vote', async (req, res) => {
-    const eventIndex = req.body.eventIndex;
-    const songIndex = req.body.songIndex;
+app.put('/events/:eventIndex/songs/:songIndex/vote', async (req, res) => {
+    const eventIndex = req.params.eventIndex;
+    const songIndex = req.params.songIndex;
     let currEvent;
     let auth = await authorizer(req.body.username, req.body.password);
 
@@ -188,11 +188,11 @@ app.put('/events/songs/vote', async (req, res) => {
 });
 
 // ADD NEW SONG (body requries: username, password, eventIndex, song_id)
-app.post('/events/songs', async (req, res) => {
+app.post('/events/:eventIndex/songs', async (req, res) => {
     let auth = await authorizer(req.body.username, req.body.password);
 
     if(auth != "none"){
-        let eventIndex = req.body.eventIndex;
+        let eventIndex = req.params.eventIndex;
         let currEvent;
         try {
             currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
@@ -221,9 +221,9 @@ app.post('/events/songs', async (req, res) => {
 });
 
 // DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventIndex, songIndex)
-app.put('/events/songs', async (req, res) => {
-    let eventIndex = req.body.eventIndex;
-    let songIndex = req.body.songIndex;
+app.put('/events/:eventIndex/songs/:songIndex', async (req, res) => {
+    let eventIndex = req.params.eventIndex;
+    let songIndex = req.params.songIndex;
     let auth = await authorizer(req.body.username, req.body.password)
     let currEvent;
 
@@ -252,8 +252,8 @@ app.put('/events/songs', async (req, res) => {
 });
 
 // CHANGES EVENT TO INACTIVE (body requires: username, password, eventIndex)
-app.put('/events', async (req, res) => {
-    let eventIndex = req.body.eventIndex;
+app.put('/events/:eventIndex', async (req, res) => {
+    let eventIndex = req.params.eventIndex;
     let auth = await authorizer(req.body.username, req.body.password)
     if(auth == "admin"){
         try {
@@ -270,8 +270,9 @@ app.put('/events', async (req, res) => {
 });
 
 // GETS RECOMMENDATIONS
-app.get('/events/songs/recommendations/:eventIndex', async (req, res) => {
+app.get('/events/:eventIndex/songs/recommendations/limit=:limit', async (req, res) => {
     let eventIndex = req.params.eventIndex;
+    let limit = req.params.limit;
     let currEvent;
     try {
         currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
@@ -282,7 +283,7 @@ app.get('/events/songs/recommendations/:eventIndex', async (req, res) => {
         return res.status(404).send("There are no entries yet to base recommendations on.")
     }
 
-    const result = await getRecommendations(currEvent.voting);
+    const result = await getRecommendations(currEvent.voting, limit);
     res.json(result);
 })
 
@@ -328,10 +329,10 @@ function getToken(){
     return promise;
 };
 
-async function searchTrack(track){
+async function searchTrack(track, type, limit){
     var token = await getToken();
     return new Promise(function(resolve, reject) {
-        fetch(("https://api.spotify.com/v1/search?q=" + track + "&type=track&limit=" + LIMIT), { 
+        fetch(("https://api.spotify.com/v1/search?q=" + track + "&type=" + type + "&limit=" + limit), { 
                 method: "GET",
                 headers: {
                     "Accept": "application/json",
@@ -343,7 +344,7 @@ async function searchTrack(track){
             .then(json => {
                 
                 let allResults = [];
-                for(let i = 0; i < LIMIT; i++){
+                for(let i = 0; i < limit; i++){
                     // console.log(json.tracks.items[i]);
                     allResults.push(new DisplaySong(json.tracks.items[i].artists[0].name, 
                                                     json.tracks.items[i].name, 
@@ -408,7 +409,7 @@ async function getArtistGenre(artist_id){
 
 // events/songs/recommendations
 
-async function getRecommendations(voting){
+async function getRecommendations(voting, limit){
     var token = await getToken();
 
     let seed_artists = [];
@@ -426,7 +427,7 @@ async function getRecommendations(voting){
     seed_genres = seed_genres.join(",");   
 
     return new Promise(function(resolve, reject) {
-        fetch(('https://api.spotify.com/v1/recommendations?seed_artists=' + seed_artists + '&seed_genres=' + seed_genres + '&seed_tracks=' + seed_tracks + '&limit=' + LIMIT), {
+        fetch(('https://api.spotify.com/v1/recommendations?seed_artists=' + seed_artists + '&seed_genres=' + seed_genres + '&seed_tracks=' + seed_tracks + '&limit=' + limit), {
             method: "GET",
             headers: {
                 "Authorization" : "Bearer " + token,
@@ -436,7 +437,7 @@ async function getRecommendations(voting){
         .then(json => {
             let allRecommendations = [];
 
-            for(let i = 0; i < LIMIT; i++){
+            for(let i = 0; i < limit; i++){
                 /* if(json.tracks[i] == undefined){
                     break;
                 } */
