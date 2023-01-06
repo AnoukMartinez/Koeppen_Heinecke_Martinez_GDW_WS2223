@@ -87,21 +87,17 @@ app.post('/users', async(req, res) => {
 
 // VIEWS ALL EXISTING USERS (body requires: username, password)
 app.get('/users', async (req, res) => {
-    if(await authorizer(req.body.username, req.body.password) == "admin"){
-        let admins = await client.json.get('admins');
-        let users = await client.json.get('users');
-        let allUsers = []
-        for (const key in admins) {
-            allUsers.push(new User("admin", key, admins[key].password));
-        }
-        for (const key in users) {
-            allUsers.push(new User("user", key, users[key].password));
-        }
-        res.json(allUsers);
-        res.status(200);
-    } else {
-        res.status(405).send("You don't seem to be authorized for this action.")
+    let admins = await client.json.get('admins');
+    let users = await client.json.get('users');
+    let allUsers = []
+    for (const key in admins) {
+        allUsers.push(new User("admin", key));
     }
+    for (const key in users) {
+        allUsers.push(new User("user", key));
+    }
+    res.json(allUsers);
+    res.status(200);
 })
 
 // MAKE NEW EVENT (body requires: password, username, name)
