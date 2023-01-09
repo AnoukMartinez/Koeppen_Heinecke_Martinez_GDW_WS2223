@@ -15,20 +15,20 @@ const app = express();
 app.use(express.json());
 
 class DisplaySong {
-    constructor(artist, title, song_id){
+    constructor(artist, title, spotify_song_id){
         this.artist = artist,
         this.title = title,
-        this.song_id = song_id
+        this.spotify_song_id = spotify_song_id
     }
 }
 
 class Song {
-    constructor(artist, title, popularity, song_id, artist_id, genre){
+    constructor(artist, title, votes, spotify_song_id, spotify_artist_id, genre){
         this.artist = artist,
         this.title = title,
-        this.popularity = popularity,
-        this.song_id = song_id,
-        this.artist_id = artist_id,
+        this.votes = votes,
+        this.spotify_song_id = spotify_song_id,
+        this.spotify_artist_id = spotify_artist_id,
         this.genre = genre
     }
 };
@@ -135,15 +135,16 @@ app.get('/events/:eventIndex', async (req, res) => {
         let i = 0;
         event.voting.forEach(function(element) {
             displayVoting.push(new DisplayEventSong(i, element.artist, element.title, 
-                                                    element.popularity, element.genre));
+                                                    element.votes.length, element.genre));
             i++;
         })
+        
 
         event.voting = displayVoting.sort(({popularity : a}, {popularity : b}) => b - a);
         return res.send(event)
     } catch {
         return res.status(404).send("Event Does Not Exist...");
-    }
+    } 
 });
 
 // SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
@@ -155,8 +156,8 @@ app.get('/songs/title=:title&type=:type&limit=:limit', async (req, res) => {
     res.json(result);
 });
 
-// VOTE FOR EXISTING SONG (body requires: eventIndex (starts from 0), songIndex (starts from 0), username, password)
-app.put('/events/:eventIndex/songs/:songIndex/vote', async (req, res) => {
+// VOTE FOR EXISTING SONG (body requires: username, password)
+app.patch('/events/:eventIndex/songs/:songIndex/vote', async (req, res) => {
     const eventIndex = req.params.eventIndex;
     const songIndex = req.params.songIndex;
     let currEvent;
@@ -175,15 +176,48 @@ app.put('/events/:eventIndex/songs/:songIndex/vote', async (req, res) => {
         if(currEvent.isActive == false){
             return res.status(403).send("Event Is Not Active Anymore...")
         }
+        if(currEvent.voting[songIndex].votes.includes(req.body.username)){
+            return res.status(403).send("A vote by this profile has already been registered.")
+        }
 
-        await client.json.set('events', `$[${eventIndex}].voting[${songIndex}].popularity`, ++currEvent.voting[songIndex].popularity);
+        await client.json.ARRAPPEND('events', `$[${eventIndex}].voting[${songIndex}].votes`, req.body.username);
         res.status(201).send(`Successfully voted for ${currEvent.voting[songIndex].title} by ${currEvent.voting[songIndex].artist}!`);
     } else {
         res.status(405).send("Your credentials don't match those of an existing user.")
     }
 });
 
-// ADD NEW SONG (body requries: username, password, eventIndex, song_id)
+// DELETES A USER VOTE FROM A SPECIFIED SONG (body requires: username, password)
+app.delete('/events/:eventIndex/songs/:songIndex/vote', async (req, res) => {
+    const eventIndex = req.params.eventIndex;
+    const songIndex = req.params.songIndex;
+    let currEvent;
+    let auth = await authorizer(req.body.username, req.body.password);
+
+    if(auth != "none"){
+        try {
+            currEvent = await client.json.get('events', {path: [`.[${eventIndex}]`]});
+        } catch {
+            return res.status(404).send("Event Does Not Exist...");
+        }
+        if(songIndex < 0 || currEvent.voting.length <= songIndex) {
+            return res.status(404).send("Song Does Not Exist...");
+        } 
+        if(currEvent.isActive == false){
+            return res.status(403).send("Event Is Not Active Anymore...")
+        }
+        let exists = currEvent.voting[songIndex].votes.findIndex(user_id => user_id == req.body.username)
+        if(exists != -1){
+            await client.json.arrPop('events', `$[${eventIndex}].voting[${songIndex}].votes`, exists);
+            return res.status(201).send(`The vote by ${req.body.username} on ${currEvent.voting[songIndex].title} by ${currEvent.voting[songIndex].artist} has been successfully removed.`);
+        }
+        return res.status(403).send("No vote by this profile has been registered.");
+    } else {
+        res.status(405).send("Your credentials don't match those of an existing user.");
+    }
+});
+
+// ADD NEW SONG (body requries: username, password, eventIndex, spotify_song_id)
 app.post('/events/:eventIndex/songs', async (req, res) => {
     let auth = await authorizer(req.body.username, req.body.password);
 
@@ -200,12 +234,15 @@ app.post('/events/:eventIndex/songs', async (req, res) => {
             return res.status(403).send("Event Is Not Active Anymore...");
         }
         
-        let song_id = req.body.song_id;
-        let newSong = await getSongDetail(song_id);
+        let spotify_song_id = req.body.spotify_song_id;
+        let newSong = await getSongDetail(spotify_song_id);
 
-        const exists = currEvent.voting.findIndex(song => song.song_id == newSong.song_id);
+        const exists = currEvent.voting.findIndex(song => song.spotify_song_id == newSong.spotify_song_id);
         if(exists != -1){
-            await client.json.set('events', `$[${eventIndex}].voting[${exists}].popularity`, ++currEvent.voting[exists].popularity);
+            if(currEvent.voting[exists].votes.includes(req.body.username)){
+                return res.status(403).send("There is a vote already registered for an existing song like this.")
+            }
+            await client.json.ARRAPPEND('events', `$[${eventIndex}].voting[${exists}].votes`, req.body.username);
             res.status(200).send("This song already exists in the voting. We incremented the popularity for you!")
         } else {
             await client.json.ARRAPPEND('events', `$[${eventIndex}].voting`, newSong);
@@ -217,7 +254,7 @@ app.post('/events/:eventIndex/songs', async (req, res) => {
 });
 
 // DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventIndex, songIndex)
-app.put('/events/:eventIndex/songs/:songIndex', async (req, res) => {
+app.delete('/events/:eventIndex/songs/:songIndex', async (req, res) => {
     let eventIndex = req.params.eventIndex;
     let songIndex = req.params.songIndex;
     let auth = await authorizer(req.body.username, req.body.password)
@@ -248,7 +285,7 @@ app.put('/events/:eventIndex/songs/:songIndex', async (req, res) => {
 });
 
 // CHANGES EVENT TO INACTIVE (body requires: username, password, eventIndex)
-app.put('/events/:eventIndex', async (req, res) => {
+app.patch('/events/:eventIndex', async (req, res) => {
     let eventIndex = req.params.eventIndex;
     let auth = await authorizer(req.body.username, req.body.password)
     if(auth == "admin"){
@@ -351,10 +388,10 @@ async function searchTrack(track, type, limit){
 });
 };
 
-async function getTrackDetail(song_id){
+async function getTrackDetail(spotify_song_id){
     var token = await getToken();
     return new Promise(function(resolve, reject) {
-        fetch(('https://api.spotify.com/v1/tracks/' + song_id), {
+        fetch(('https://api.spotify.com/v1/tracks/' + spotify_song_id), {
             method: "GET",
             headers: {
                 "Accept": "application/json",
@@ -365,27 +402,27 @@ async function getTrackDetail(song_id){
         .then(json => {
             let artist = json.artists[0].name;
             let title = json.name;
-            let popularity = 1;
-            let song_id = json.id;
-            let artist_id = json.artists[0].id;
-            let newSong = new Song(artist, title, popularity, song_id, artist_id);
+            let votes = [];
+            let spotify_song_id = json.id;
+            let spotify_artist_id = json.artists[0].id;
+            let newSong = new Song(artist, title, votes, spotify_song_id, spotify_artist_id);
             resolve(newSong);
         })
     })
 }
 
-async function getSongDetail(song_id){
-    let newSong = await getTrackDetail(song_id);
-    let genre = await getArtistGenre(newSong.artist_id);
-    let finalSong = new Song(newSong.artist, newSong.title, newSong.popularity, newSong.song_id,
-                                newSong.artist_id, genre);
+async function getSongDetail(spotify_song_id){
+    let newSong = await getTrackDetail(spotify_song_id);
+    let genre = await getArtistGenre(newSong.spotify_artist_id);
+    let finalSong = new Song(newSong.artist, newSong.title, newSong.votes, newSong.spotify_song_id,
+                                newSong.spotify_artist_id, genre);
     return finalSong;
 }
 
-async function getArtistGenre(artist_id){
+async function getArtistGenre(spotify_artist_id){
     var token = await getToken();
     return new Promise(function(resolve, reject) {
-        fetch(('https://api.spotify.com/v1/artists/' + artist_id), {
+        fetch(('https://api.spotify.com/v1/artists/' + spotify_artist_id), {
             method: "GET",
             headers: {
                 "Accept": "application/json",
@@ -415,10 +452,10 @@ async function getRecommendations(voting, limit){
     // 5 Seeds Total (Interchangeable)
     for(let i=0;i < voting.length && i < 2;i++){
         seed_genres.push(voting[i].genre[0]);
-        seed_artists.push(voting[i].artist_id);
+        seed_artists.push(voting[i].spotify_artist_id);
     }
 
-    seed_tracks.push(voting[0].song_id);
+    seed_tracks.push(voting[0].spotify_song_id);
     seed_artists = seed_artists.join(",");
     seed_genres = seed_genres.join(",");   
 
