@@ -14,26 +14,18 @@ await client.connect();
 const app = express();
 app.use(express.json());
 
-class DisplaySong {
-    constructor(artist, title, spotify_song_id){
-        this.artist = artist,
-        this.title = title,
-        this.spotify_song_id = spotify_song_id
-    }
-}
-
 class Song {
-    constructor(artist, title, votes, spotify_song_id, spotify_artist_id, genre){
+    constructor(artist, title, spotify_song_id, spotify_artist_id, votes, genre){
         this.artist = artist,
         this.title = title,
-        this.votes = votes,
         this.spotify_song_id = spotify_song_id,
         this.spotify_artist_id = spotify_artist_id,
+        this.votes = votes,
         this.genre = genre
     }
 };
 
-class DisplayEventSong {
+class DisplaySong {
     constructor(index, artist, title, popularity, genre){
         this.index = index,
         this.artist = artist,
@@ -43,21 +35,13 @@ class DisplayEventSong {
     }
 }
 
-class DisplayParty {
-    constructor(name, dateOfCreation, isActive){
-        this.name = name;
-        this.dateOfCreation = dateOfCreation;
-        this.isActive = isActive;
-    }
-}
-
 class Party {
-    constructor(name, voting, tracklist, dateOfCreation, isActive){
-        this.name = name;
-        this.voting = voting;
-        this.tracklist = tracklist;
-        this.dateOfCreation = dateOfCreation;
-        this.isActive = isActive;
+    constructor(name, dateOfCreation, isActive, voting, tracklist){
+        this.name = name,
+        this.dateOfCreation = dateOfCreation,
+        this.isActive = isActive,
+        this.voting = voting,
+        this.tracklist = tracklist
     }
 }
 
@@ -104,7 +88,7 @@ app.get('/users', async (req, res) => {
 app.post('/events', async (req, res) => {
     const auth = await authorizer(req.body.username, req.body.password);
     if(auth == "admin"){
-        let newParty = new Party(req.body.name, [], [], Date.now(), true);
+        let newParty = new Party(req.body.name, Date.now(), true, [], []);
         await client.json.ARRAPPEND('events', '$', newParty);
         res.status(201).send("Event has been created!");
     } else {
@@ -118,7 +102,7 @@ app.get('/events', async (req, res) => {
     let allEvents = []
 
     events.forEach(function(item) {
-        allEvents.push(new DisplayParty(item.name, item.dateOfCreation, item.isActive));
+        allEvents.push(new Party(item.name, item.dateOfCreation, item.isActive));
     })
     
     res.json(allEvents);
@@ -134,7 +118,7 @@ app.get('/events/:eventIndex', async (req, res) => {
         let displayVoting = [];
         let i = 0;
         event.voting.forEach(function(element) {
-            displayVoting.push(new DisplayEventSong(i, element.artist, element.title, 
+            displayVoting.push(new DisplaySong(i, element.artist, element.title, 
                                                     element.votes.length, element.genre));
             i++;
         })
@@ -379,8 +363,8 @@ async function searchTrack(track, type, limit){
                 let allResults = [];
                 for(let i = 0; i < limit; i++){
                     // console.log(json.tracks.items[i]);
-                    allResults.push(new DisplaySong(json.tracks.items[i].artists[0].name, 
-                                                    json.tracks.items[i].name, 
+                    allResults.push(new Song(json.tracks.items[i].artists[0].name, 
+                                                    json.tracks.items[i].name,
                                                     json.tracks.items[i].id))
                 };
             resolve(allResults);
@@ -405,7 +389,7 @@ async function getTrackDetail(spotify_song_id){
             let votes = [];
             let spotify_song_id = json.id;
             let spotify_artist_id = json.artists[0].id;
-            let newSong = new Song(artist, title, votes, spotify_song_id, spotify_artist_id);
+            let newSong = new Song(artist, title, spotify_song_id, spotify_artist_id, votes);
             resolve(newSong);
         })
     })
@@ -414,8 +398,8 @@ async function getTrackDetail(spotify_song_id){
 async function getSongDetail(spotify_song_id){
     let newSong = await getTrackDetail(spotify_song_id);
     let genre = await getArtistGenre(newSong.spotify_artist_id);
-    let finalSong = new Song(newSong.artist, newSong.title, newSong.votes, newSong.spotify_song_id,
-                                newSong.spotify_artist_id, genre);
+    let finalSong = new Song(newSong.artist, newSong.title, newSong.spotify_song_id,
+                                newSong.spotify_artist_id, newSong.votes, genre);
     return finalSong;
 }
 
@@ -474,7 +458,7 @@ async function getRecommendations(voting, limit){
                 /* if(json.tracks[i] == undefined){
                     break;
                 } */
-                let recSong = new DisplaySong(json.tracks[i].artists[0].name, json.tracks[i].name, json.tracks[i].id);
+                let recSong = new Song(json.tracks[i].artists[0].name, json.tracks[i].name, json.tracks[i].id);
                 allRecommendations.push(recSong)
             }
             resolve(allRecommendations);
