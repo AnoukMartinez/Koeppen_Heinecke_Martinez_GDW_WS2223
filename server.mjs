@@ -1,7 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { client_id } from './secrets.mjs';
-import { client_secret } from './secrets.mjs';
+const client_id = process.env.client_id;
+const client_secret = process.env.client_secret;
 import { createClient } from 'redis';
 globalThis.fetch = fetch;
 
