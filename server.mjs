@@ -1,8 +1,8 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import { createClient } from 'redis';
 const client_id = process.env.client_id;
 const client_secret = process.env.client_secret;
-import { createClient } from 'redis';
 globalThis.fetch = fetch;
 
 const client = createClient({
@@ -69,7 +69,7 @@ app.post('/users', async(req, res) => {
     }
 })
 
-// VIEWS ALL EXISTING USERS (body requires: username, password)
+// VIEWS ALL EXISTING USERS
 app.get('/users', async (req, res) => {
     let admins = await client.json.get('admins');
     let users = await client.json.get('users');
@@ -84,7 +84,7 @@ app.get('/users', async (req, res) => {
     res.status(200);
 })
 
-// MAKE NEW EVENT (body requires: password, username, name)
+// MAKE NEW EVENT (body requires: username, password, name)
 app.post('/events', async (req, res) => {
     const auth = await authorizer(req.body.username, req.body.password);
     if(auth == "admin"){
@@ -131,7 +131,7 @@ app.get('/events/:eventIndex', async (req, res) => {
     } 
 });
 
-// SEARCH A SONG (query: localhost:xxxx/songs/irgendeinname)
+// SEARCH A SONG 
 app.get('/songs/title=:title&type=:type&limit=:limit', async (req, res) => {
     const track = req.params.title;
     const type = req.params.type;
@@ -201,7 +201,7 @@ app.delete('/events/:eventIndex/songs/:songIndex/vote', async (req, res) => {
     }
 });
 
-// ADD NEW SONG (body requries: username, password, eventIndex, spotify_song_id)
+// ADD NEW SONG (body requries: username, password, spotify_song_id)
 app.post('/events/:eventIndex/songs', async (req, res) => {
     let auth = await authorizer(req.body.username, req.body.password);
 
@@ -237,7 +237,7 @@ app.post('/events/:eventIndex/songs', async (req, res) => {
     }
 });
 
-// DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password, eventIndex, songIndex)
+// DELETES SONG FROM VOTING AND ADDS IT TO TRACKLIST (body requires: username, password)
 app.delete('/events/:eventIndex/songs/:songIndex', async (req, res) => {
     let eventIndex = req.params.eventIndex;
     let songIndex = req.params.songIndex;
@@ -268,7 +268,7 @@ app.delete('/events/:eventIndex/songs/:songIndex', async (req, res) => {
     }
 });
 
-// CHANGES EVENT TO INACTIVE (body requires: username, password, eventIndex)
+// CHANGES EVENT TO INACTIVE (body requires: username, password)
 app.patch('/events/:eventIndex', async (req, res) => {
     let eventIndex = req.params.eventIndex;
     let auth = await authorizer(req.body.username, req.body.password)
@@ -330,6 +330,7 @@ function fetchToken(){
     return promise;
 };
 
+// GET SPOTIFY AUTH TOKEN
 function getToken(){
     let promise = new Promise(function(resolve, reject) {
         if((Date.now() - timeStamp) > 600000){
@@ -346,6 +347,7 @@ function getToken(){
     return promise;
 };
 
+// PROCESS SPOTIFY TOKEN RESPONSE
 async function searchTrack(track, type, limit){
     var token = await getToken();
     return new Promise(function(resolve, reject) {
@@ -359,19 +361,55 @@ async function searchTrack(track, type, limit){
             })
             .then(response => response.json())
             .then(json => {
-                
+                let i;
                 let allResults = [];
-                for(let i = 0; i < limit; i++){
+                try {
+                    for(i = 0; i < limit; i++){
                     // console.log(json.tracks.items[i]);
                     allResults.push(new Song(json.tracks.items[i].artists[0].name, 
                                                     json.tracks.items[i].name,
                                                     json.tracks.items[i].id))
+                    };
+                } catch {
+                    allResults.push(`${i} results found. Not enough results to match the given limit.`);
                 };
             resolve(allResults);
     })
 });
 };
 
+// COMBINES GET ARTIST GENRE AND GET TRACK DETAIL INTO NEW SONG OBJECT
+async function getSongDetail(spotify_song_id){
+    let newSong = await getTrackDetail(spotify_song_id);
+    let genre = await getArtistGenre(newSong.spotify_artist_id);
+    let finalSong = new Song(newSong.artist, newSong.title, newSong.spotify_song_id,
+                                newSong.spotify_artist_id, newSong.votes, genre);
+    return finalSong;
+}
+
+// GETS SONG GENRE THROUGH ARTIST ID
+async function getArtistGenre(spotify_artist_id){
+    var token = await getToken();
+    return new Promise(function(resolve, reject) {
+        fetch(('https://api.spotify.com/v1/artists/' + spotify_artist_id), {
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
+            }
+        }).then(response => response.json())
+        .then(json => {
+            let genres = [];
+            for(let i = 0; i < json.genres.length; i++){
+                genres.push(json.genres[i]);
+            }
+            resolve(genres);        
+        }) 
+    })
+}
+
+// GET ARTIST NAME, TITLE, SPOTIFY TRACK ID, SPOTIFY ARTIST ID
 async function getTrackDetail(spotify_song_id){
     var token = await getToken();
     return new Promise(function(resolve, reject) {
@@ -395,37 +433,7 @@ async function getTrackDetail(spotify_song_id){
     })
 }
 
-async function getSongDetail(spotify_song_id){
-    let newSong = await getTrackDetail(spotify_song_id);
-    let genre = await getArtistGenre(newSong.spotify_artist_id);
-    let finalSong = new Song(newSong.artist, newSong.title, newSong.spotify_song_id,
-                                newSong.spotify_artist_id, newSong.votes, genre);
-    return finalSong;
-}
-
-async function getArtistGenre(spotify_artist_id){
-    var token = await getToken();
-    return new Promise(function(resolve, reject) {
-        fetch(('https://api.spotify.com/v1/artists/' + spotify_artist_id), {
-            method: "GET",
-            headers: {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + token
-            }
-        }).then(response => response.json())
-        .then(json => {
-            let genres = [];
-            for(let i = 0; i < json.genres.length; i++){
-                genres.push(json.genres[i]);
-            }
-            resolve(genres);        
-        }) 
-    })
-}
-
-// events/songs/recommendations
-
+// GETS RECOMMENDATIONS BASED OF SPECIFIED EVENT VOTING
 async function getRecommendations(voting, limit){
     var token = await getToken();
 
@@ -433,7 +441,6 @@ async function getRecommendations(voting, limit){
     let seed_genres = [];
     let seed_tracks = [];
 
-    // 5 Seeds Total (Interchangeable)
     for(let i=0;i < voting.length && i < 2;i++){
         seed_genres.push(voting[i].genre[0]);
         seed_artists.push(voting[i].spotify_artist_id);
@@ -466,9 +473,7 @@ async function getRecommendations(voting, limit){
     })
 }
 
-// let songDetailTest = await getSongDetail('0zv1grI5zKy2dxSu93unXc');
-// console.log(songDetailTest);
-
+// CHECKS FOR USERNAME AND PASSWORD IN ADMINS AND USERS ARRAY
 async function authorizer(username, password){
     let adminsDB = await client.json.get('admins', {path: `$.${username}`});
     if(adminsDB.length != 0 && adminsDB[0].password == password){
