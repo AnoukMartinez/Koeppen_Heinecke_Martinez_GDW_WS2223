@@ -378,15 +378,6 @@ async function searchTrack(track, type, limit){
 });
 };
 
-// COMBINES GET ARTIST GENRE AND GET TRACK DETAIL INTO NEW SONG OBJECT
-async function getSongDetail(spotify_song_id){
-    let newSong = await getTrackDetail(spotify_song_id);
-    let genre = await getArtistGenre(newSong.spotify_artist_id);
-    let finalSong = new Song(newSong.artist, newSong.title, newSong.spotify_song_id,
-                                newSong.spotify_artist_id, newSong.votes, genre);
-    return finalSong;
-}
-
 // GETS SONG GENRE THROUGH ARTIST ID
 async function getArtistGenre(spotify_artist_id){
     var token = await getToken();
@@ -431,6 +422,15 @@ async function getTrackDetail(spotify_song_id){
             resolve(newSong);
         })
     })
+}
+
+// COMBINES GET ARTIST GENRE AND GET TRACK DETAIL INTO NEW SONG OBJECT
+async function getSongDetail(spotify_song_id){
+    let newSong = await getTrackDetail(spotify_song_id);
+    let genre = await getArtistGenre(newSong.spotify_artist_id);
+    let finalSong = new Song(newSong.artist, newSong.title, newSong.spotify_song_id,
+                                newSong.spotify_artist_id, newSong.votes, genre);
+    return finalSong;
 }
 
 // GETS RECOMMENDATIONS BASED OF SPECIFIED EVENT VOTING
